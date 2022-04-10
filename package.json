@@ -1,10 +1,10 @@
 {
-  "name": "pg-composite",
+  "name": "postgres-composite",
   "version": "0.1.0",
   "description": "Parse and serialize PostgreSQL composite values",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
-  "repository": "github.com/boromisp/node-pg-composite",
+  "repository": "github.com/boromisp/postgres-composite",
   "author": "Peter B",
   "license": "MIT",
   "engines": {
@@ -21,9 +21,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "prebuild": "npm run prettier -- -c",
     "prettier": "prettier ./src",
-    "test": "node test.js",
-    "pretest": "npm run build"
+    "test": "node test.js"
   }
 }

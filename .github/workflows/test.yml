@@ -1,18 +1,24 @@
 name: test
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
 
 jobs:
   test:
     name: Test Node v${{ matrix.node }}
     strategy:
       matrix:
-        node: ["12", "14", "16"]
+        node: ["12.x", "14.x", "16.x"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
         with:
           node-version: ${{ matrix.node }}
-      - run: npm ci
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+        name: Build
       - run: npm test
