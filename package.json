@@ -1,6 +1,6 @@
 {
   "name": "postgres-composite",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Parse and serialize PostgreSQL composite values",
   "repository": "boromisp/postgres-composite",
   "author": "Peter B",
