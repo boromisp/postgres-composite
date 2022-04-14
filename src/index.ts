@@ -1,3 +1,21 @@
+function checkEndOfField(value: string, i: number) {
+  switch (value[i]) {
+    case ",":
+      return true;
+
+    case ")":
+      if (i < value.length - 1) {
+        throw new RangeError(
+          "Invalid composite literal: end of input expected"
+        );
+      }
+      return false;
+
+    default:
+      throw new RangeError("Invalid composite literal: ) or , expected");
+  }
+}
+
 /**
  * Parses a composite value into the list of attributes.
  * `NULL` attributes are returned as JavaScript `null`, every other value
@@ -20,63 +38,79 @@
  * {@link https://www.postgresql.org/docs/current/rowtypes.html#ROWTYPES-IO-SYNTAX Source}
  */
 export function* parse(value: string) {
-  let i = 0;
+  if (typeof value !== "string") {
+    throw new TypeError("Invalid input: string expected");
+  }
+
+  if (value[0] !== "(") {
+    throw new RangeError("Invalid composite literal: ( expected");
+  }
+
+  let i = 1;
   let end;
 
-  // remove leading and trailing whitespace and parentheses
-  value = value.trim();
-  value = value.substring(1, value.length - 1);
-
   while (true) {
+    // expecting a new field
     switch (value[i]) {
       case undefined:
-        yield null;
-        return;
+        throw new RangeError(
+          "Invalid composite literal: unexpected end of input"
+        );
 
+      case ")": // fallthrough
       case ",":
         yield null;
-        i += 1;
-        continue;
+
+        if (checkEndOfField(value, i)) {
+          i += 1;
+          continue;
+        }
+        return;
 
       case '"':
         i += 1;
-        // find the next double quote not escaped by doubling
-        end = i + value.substring(i).search(/(?<=([^"]|^)("")*)"(?!")/);
+        end = i + value.substring(i).search(/(?<=([^"]|^)("")*)"[^"]/);
         if (end < i) {
-          throw new RangeError("couldn't find closing double quote");
+          throw new RangeError(
+            "Invalid composite literal: unterminated double quotes"
+          );
         }
+
+        // Should we check if there are odd number of \ before the closing doulbe quotes?
+        // Postgres doesn't use \ to escape " in it's output, but accepts it in the input.
 
         yield value
           .substring(i, end)
           .replace(/""/g, '"')
           .replace(/\\\\/g, "\\");
 
-        switch (value[end + 1]) {
-          case undefined:
-            return;
-
-          case ",":
-            i = end + 2;
-            continue;
-
-          default:
-            throw new RangeError(
-              "comma or end-of-string expected after closing double quote"
-            );
+        if (checkEndOfField(value, end + 1)) {
+          i = end + 2;
+          continue;
         }
+        return;
 
       default:
-        // find the next comma or go to the end of the string
-        end = value.indexOf(",", i);
+        end = value.indexOf(",", i + 1);
         if (end === -1) {
-          yield value.substring(i);
-          return;
+          end = value.indexOf(")", i + 1);
+          if (end === -1) {
+            throw new RangeError(
+              "Invalid composite literal: unexpected end of input"
+            );
+          }
         }
+
+        // Should we check if there are any \ in the field value?
+        // Postgres doesn't use escaped characters in unquoted fields, but accepts it in the input.
 
         yield value.substring(i, end);
 
-        i = end + 1;
-        continue;
+        if (checkEndOfField(value, end)) {
+          i = end + 1;
+          continue;
+        }
+        return;
     }
   }
 }
