@@ -36,8 +36,12 @@ test("parse backslashes", (t) => {
   t.deepEqual(result, ["\\"]);
 });
 
-test("serialize throws on empty input", (t) => {
-  t.throws(() => serialize([]));
+test("parse null input returns empty", (t) => {
+  t.deepEqual([...parse(null)], []);
+});
+
+test("serialize returns null on empty input", (t) => {
+  t.equal(serialize([]), null);
 });
 
 test("serialze escapes double quotes and backslashes by doulbling", (t) => {

@@ -1,137 +1,65 @@
-function checkEndOfField(value: string, i: number) {
-  switch (value[i]) {
-    case ",":
-      return true;
+const field = String.raw`[^\s(),"\\]*|"(?:[^"\\]|""|\\\\)*"`;
+const validator = new RegExp(String.raw`^\((?:${field})(?:,${field})*\)$`);
 
-    case ")":
-      if (i < value.length - 1) {
-        throw new RangeError(
-          "Invalid composite literal: end of input expected"
-        );
-      }
-      return false;
-
-    default:
-      throw new RangeError("Invalid composite literal: ) or , expected");
-  }
+export function validate(value: string) {
+  return validator.test(value);
 }
 
-/**
- * Parses a composite value into the list of attributes.
- * `NULL` attributes are returned as JavaScript `null`, every other value
- * is returned as its string representation.
- *
- * Throws on some invalid inputs.
- *
- * Only supports the output format of the Postgres (see below).
- * In particular, cannot parse and could result in silent errors:
- *  - double quotes escaped by backslash
- *  - backslashes outside of quotes
- *  - anything escaped other then double quotes and backslashes
- *
- * A completely empty field value (no characters at all between the commas or parentheses) represents a NULL.
- * [...] The composite output routine will put double quotes around field values if they are empty strings
- * or contain parentheses, commas, double quotes, backslashes, or white space.
- * (Doing so for white space is not essential, but aids legibility.)
- * Double quotes and backslashes embedded in field values will be doubled.
- *
- * {@link https://www.postgresql.org/docs/current/rowtypes.html#ROWTYPES-IO-SYNTAX Source}
- */
-export function* parse(value: string) {
+// should match a field separator and a field value, capturing the field value
+// should make sure that the string begins and ends with ( and )
+const parser = new RegExp(
+  String.raw`(?:^\(|(?<!^),)(${field})(?=,(?!$)|\)$)`,
+  "g"
+);
+
+// Returns empty on null
+export function* parse(value: string | null) {
+  if (value === null) {
+    return;
+  }
+
   if (typeof value !== "string") {
-    throw new TypeError("Invalid input: string expected");
+    throw new TypeError("string expected");
   }
 
-  if (value[0] !== "(") {
-    throw new RangeError("Invalid composite literal: ( expected");
-  }
+  // Need to cache the RegExp lastIndex prop because
+  // we are using a stateful object in a generator function.
+  let lastIndex = 0;
 
-  let i = 1;
-  let end;
+  do {
+    parser.lastIndex = lastIndex;
+    const match = parser.exec(value);
 
-  while (true) {
-    // expecting a new field
-    switch (value[i]) {
-      case undefined:
-        throw new RangeError(
-          "Invalid composite literal: unexpected end of input"
-        );
-
-      case ")": // fallthrough
-      case ",":
-        yield null;
-
-        if (checkEndOfField(value, i)) {
-          i += 1;
-          continue;
-        }
-        return;
-
-      case '"':
-        i += 1;
-        end = i + value.substring(i).search(/(?<=([^"]|^)("")*)"[^"]/);
-        if (end < i) {
-          throw new RangeError(
-            "Invalid composite literal: unterminated double quotes"
-          );
-        }
-
-        // Should we check if there are odd number of \ before the closing doulbe quotes?
-        // Postgres doesn't use \ to escape " in it's output, but accepts it in the input.
-
-        yield value
-          .substring(i, end)
-          .replace(/""/g, '"')
-          .replace(/\\\\/g, "\\");
-
-        if (checkEndOfField(value, end + 1)) {
-          i = end + 2;
-          continue;
-        }
-        return;
-
-      default:
-        end = value.indexOf(",", i + 1);
-        if (end === -1) {
-          end = value.indexOf(")", i + 1);
-          if (end === -1) {
-            throw new RangeError(
-              "Invalid composite literal: unexpected end of input"
-            );
-          }
-        }
-
-        // Should we check if there are any \ in the field value?
-        // Postgres doesn't use escaped characters in unquoted fields, but accepts it in the input.
-
-        yield value.substring(i, end);
-
-        if (checkEndOfField(value, end)) {
-          i = end + 1;
-          continue;
-        }
-        return;
+    if (!match || match.index > lastIndex) {
+      throw new RangeError("invalid value");
     }
-  }
+
+    lastIndex = parser.lastIndex;
+
+    if (match[1] === "") {
+      yield null;
+    } else if (match[1].startsWith('"')) {
+      yield match[1]
+        .substring(1, match[1].length - 1)
+        .replace(/(["\\])\1/g, "$1");
+    } else {
+      yield match[1];
+    }
+  } while (lastIndex < value.length - 1);
 }
 
-/**
- * Serialze a list of attributes into a composite type literal.
- * `null` values should be passed as is, every other value
- * must be converted to its string representation.
- *
- * Throws on empty input.
- */
-export function serialize(attributes: Iterable<null | string>) {
-  let value = "(";
-  let sep = "";
+// Returns null on empty input
+export function serialize(fields: Iterable<null | string>) {
+  let value = "";
+  let sep = "(";
 
-  for (const attr of attributes) {
+  for (const field of fields) {
     value += sep;
     sep = ",";
 
-    switch (attr) {
+    switch (field) {
       case null:
+        value += "";
         continue;
 
       case "":
@@ -139,16 +67,16 @@ export function serialize(attributes: Iterable<null | string>) {
         continue;
 
       default:
-        if (/[,()\\"\s]/.test(attr)) {
-          value += `"${attr.replace(/(["\\])/g, "$1$1")}"`;
+        if (/[\s(),"\\]/.test(field)) {
+          value += `"${field.replace(/(["\\])/g, "$1$1")}"`;
         } else {
-          value += attr;
+          value += field;
         }
     }
   }
 
-  if (!sep) {
-    throw new RangeError("expected at least one attribute");
+  if (sep === "(") {
+    return null;
   }
 
   return value + ")";
